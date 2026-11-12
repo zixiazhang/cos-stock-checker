@@ -1,0 +1,41 @@
+name: COS Trullo Bag Stock Check
+
+on:
+  schedule:
+    # Runs every 15 minutes in the cloud
+    - cron: '*/15 * * * *'
+  workflow_dispatch:
+    inputs:
+      send_test_notification:
+        description: 'Send a Telegram notification even if out of stock (for testing)'
+        required: false
+        default: 'true'
+        type: choice
+        options:
+          - 'true'
+          - 'false'
+
+jobs:
+  check-stock:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Run COS stock check (with Xvfb + Chrome)
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          FORCE_NOTIFY: ${{ github.event_name == 'workflow_dispatch' && inputs.send_test_notification || 'false' }}
+        run: xvfb-run --auto-servernum --server-args="-screen 0 1366x768x24" node check_stock.mjs
