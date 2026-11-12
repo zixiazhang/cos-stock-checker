@@ -1,0 +1,12 @@
+{
+  "name": "cos-stock-checker",
+  "version": "1.0.0",
+  "description": "Checks COS Trullo Oversized Flap Bag (Leather, Ebony - 1361103002) stock status and sends Telegram alerts.",
+  "type": "module",
+  "scripts": {
+    "check": "node check_stock.mjs"
+  },
+  "dependencies": {
+    "playwright": "^1.49.0"
+  }
+}
