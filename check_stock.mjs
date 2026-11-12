@@ -47,7 +47,7 @@ async function evaluateProductPage(page) {
     const title = document.title || '';
     const bodyText = document.body ? document.body.innerText : '';
 
-    // 1. Check if blocked by Akamai / WAF
+    // 1. Detect if the site refused the request (Akamai "Access Denied" page)
     if (
       title.toLowerCase().includes('access denied') ||
       bodyText.includes('errors.edgesuite.net')
@@ -55,7 +55,7 @@ async function evaluateProductPage(page) {
       return {
         blocked: true,
         inStock: false,
-        reason: 'Blocked by Akamai Bot Manager (Access Denied)',
+        reason: 'cos.com refused the request (Access Denied)',
         price: null,
       };
     }
@@ -148,7 +148,7 @@ async function evaluateProductPage(page) {
     return {
       blocked: false,
       inStock: false,
-      reason: 'Could not confirm In Stock state from page DOM',
+      reason: `Loaded page ("${title}"), no active Add to Bag button found`,
       price,
     };
   });
@@ -158,61 +158,47 @@ async function runCheck() {
   console.log(`Checking stock for: ${PRODUCT_NAME}`);
   console.log(`URL: ${PRODUCT_URL}`);
 
-  // Launch real Google Chrome under Xvfb (headless: false) to avoid headless bot detection
-  const browser = await chromium.launch({
-    channel: 'chrome',
-    headless: false,
-    args: [
-      '--disable-blink-features=AutomationControlled',
-      '--no-sandbox',
-      '--disable-setuid-sandbox',
-      '--window-size=1366,768',
-    ],
-  });
-
+  const browser = await chromium.launch({ channel: 'chrome', headless: false });
+  let result;
   try {
     const context = await browser.newContext({
       locale: 'en-GB',
       timezoneId: 'Europe/London',
       viewport: { width: 1366, height: 768 },
-      userAgent:
-        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
     });
-
-    await context.addInitScript(() => {
-      Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
-    });
-
     const page = await context.newPage();
     await page.goto(PRODUCT_URL, { waitUntil: 'domcontentloaded', timeout: 45000 });
-    // Wait briefly for client-side hydration / product availability state
     await page.waitForTimeout(4000);
-
-    const result = await evaluateProductPage(page);
-    console.log('Check result:', JSON.stringify(result, null, 2));
-
-    if (result.inStock) {
-      const priceLine = result.price ? `\n💰 <b>Price:</b> ${result.price}` : '';
-      const message =
-        `🟢 <b>IN STOCK ALERT!</b>\n\n` +
-        `👜 <b>${PRODUCT_NAME}</b> is now available!${priceLine}\n` +
-        `ℹ️ <i>${result.reason}</i>\n\n` +
-        `🔗 <a href="${PRODUCT_URL}">Buy now on COS UK</a>`;
-      await sendTelegramMessage(message);
-    } else if (FORCE_NOTIFY) {
-      const statusIcon = result.blocked ? '⚠️' : '🔴';
-      const message =
-        `${statusIcon} <b>COS Stock Check (Test Notification)</b>\n\n` +
-        `👜 <b>${PRODUCT_NAME}</b>\n` +
-        `📌 <b>Status:</b> ${result.inStock ? 'In Stock' : 'Not in stock'}\n` +
-        `ℹ️ <i>${result.reason}</i>\n\n` +
-        `🔗 <a href="${PRODUCT_URL}">View product page</a>`;
-      await sendTelegramMessage(message);
-    } else {
-      console.log('Item is not in stock. No Telegram alert sent.');
-    }
+    result = await evaluateProductPage(page);
   } finally {
     await browser.close();
+  }
+
+  console.log('Check result:', JSON.stringify(result, null, 2));
+
+  if (result.inStock) {
+    const priceLine = result.price ? `\n💰 <b>Price:</b> ${result.price}` : '';
+    const message =
+      `🟢 <b>IN STOCK ALERT!</b>\n\n` +
+      `👜 <b>${PRODUCT_NAME}</b> is now available!${priceLine}\n` +
+      `ℹ️ <i>${result.reason}</i>\n\n` +
+      `🔗 <a href="${PRODUCT_URL}">Buy now on COS UK</a>`;
+    await sendTelegramMessage(message);
+  } else if (FORCE_NOTIFY) {
+    const statusIcon = result.blocked ? '⚠️' : '🔴';
+    const message =
+      `${statusIcon} <b>COS Stock Check (Test Notification)</b>\n\n` +
+      `👜 <b>${PRODUCT_NAME}</b>\n` +
+      `📌 <b>Status:</b> ${result.blocked ? 'Could not check (blocked)' : 'Not in stock'}\n` +
+      `ℹ️ <i>${result.reason}</i>\n\n` +
+      `🔗 <a href="${PRODUCT_URL}">View product page</a>`;
+    await sendTelegramMessage(message);
+  } else {
+    console.log(
+      result.blocked
+        ? 'Could not check stock: request was refused by cos.com.'
+        : 'Item is not in stock. No Telegram alert sent.'
+    );
   }
 }
 
